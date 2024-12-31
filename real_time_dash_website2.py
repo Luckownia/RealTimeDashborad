@@ -25,12 +25,8 @@ def create_database():
 
 create_database()
 
-# Twelve Data API Endpoint
-TWELVE_DATA_URL = "https://api.twelvedata.com/price"
-API_KEY = "391309a214aa4301a70f58e0660816e2"
-
-# Stock Symbols
-SYMBOLS = ["AAPL"]
+# Coinbase API Endpoint
+COINBASE_URL = "https://api.coinbase.com/v2/exchange-rates"
 
 # Maksymalna liczba punktów na wykresie
 MAX_POINTS = 20
@@ -57,17 +53,14 @@ def save_data_to_sqlite(data):
     conn.commit()
     conn.close()
 
-# Funkcja do pobierania cen akcji
-def get_stock_price(symbol):
-    params = {
-        "symbol": symbol,
-        "apikey": API_KEY
-    }
-    response = requests.get(TWELVE_DATA_URL, params=params)
+# Funkcja do pobierania ceny Bitcoina w euro
+def get_bitcoin_price_in_euro():
+    params = {"currency": "BTC"}
+    response = requests.get(COINBASE_URL, params=params)
     data = response.json()
-    return float(data.get("price", 0))  # Return price or 0 if missing
+    return float(data["data"]["rates"].get("EUR", None))  # Zwraca cenę w EUR lub None, jeśli brak danych
 
-# Funkcja do inicjalizacji danych w `st.session_state`
+# Funkcja do inicjalizacji danych
 def initialize_session_state():
     if "data_generated" not in st.session_state:
         st.session_state["data_generated"] = pd.DataFrame(columns=['Time', 'Value'])
@@ -136,38 +129,44 @@ with database_container:
     )
     st.plotly_chart(fig_db)
 
-# Sekcja: Stock Data
+# Sekcja: Bitcoin Price Data
 stock_container = st.container()
 with stock_container:
-    st.header("Stock Data")
+    st.header("Bitcoin Price in EUR (API)")
 
     current_time = datetime.datetime.now()
-    for symbol in SYMBOLS:
-        price = get_stock_price(symbol)
-        new_stock_row = pd.DataFrame({
-            'Time': [current_time],
-            'Value': [price]
-        })
-        st.session_state["data_stock"] = pd.concat(
-            [st.session_state["data_stock"], new_stock_row],
-            ignore_index=True
-        )
+    price_in_euro = get_bitcoin_price_in_euro()
+
+    # Jeśli brak danych z API, bierzemy ostatnią dostępną wartość
+    if price_in_euro == 0 and len(st.session_state["data_stock"]) > 0:
+        price_in_euro = st.session_state["data_stock"]["Value"].iloc[-1]
+
+    # Dodajemy nowy rekord z kursem
+    new_stock_row = pd.DataFrame({
+        'Time': [current_time],
+        'Value': [price_in_euro]
+    })
+    st.session_state["data_stock"] = pd.concat(
+        [st.session_state["data_stock"], new_stock_row],
+        ignore_index=True
+    )
 
     # Utrzymanie ograniczonej liczby punktów
     if len(st.session_state["data_stock"]) > MAX_POINTS:
         st.session_state["data_stock"] = st.session_state["data_stock"].tail(MAX_POINTS)
 
+    # Rysowanie wykresu
     fig_stock = go.Figure()
     fig_stock.add_trace(go.Scatter(
         x=st.session_state["data_stock"]['Time'],
         y=st.session_state["data_stock"]['Value'],
         mode='lines+markers',
-        name='Stock Price'
+        name='Bitcoin Price'
     ))
     fig_stock.update_layout(
-        title="Stock Data Visualization",
+        title="Bitcoin Price Visualization",
         xaxis_title="Time",
-        yaxis_title="Price"
+        yaxis_title="Price (EUR)"
     )
     st.plotly_chart(fig_stock)
 
